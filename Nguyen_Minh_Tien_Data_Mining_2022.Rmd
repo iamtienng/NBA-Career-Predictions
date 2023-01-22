@@ -1,0 +1,340 @@
+---
+title: "Data Mining Small Project Late 2022"
+author: "Nguyen Minh Tien"
+date: "31/12/2022"
+output: html_document
+---
+# I. Project Target
+NBA player longevity prediction.
+
+The data set consist of information about NBA (National Basketball Association) players and if their
+career was longer than 5 years or not. A predictive model could be useful when contracting players,
+deciding of how long a contract with the player should last. Please build a predictive model, that
+estimates the longevity of players career (if it is longer than 5 years or not) using game statistics
+measures.
+
+## II. Problem Statement
+The data set details the performance metrics of NBA players and whether their careers span more than 5 years or not. The task is to predict the career length using machine learning model.
+
+### 1. What types of machine learning models perform best on this data set?
+
+Since we only need to predict whether a NBA player's career will last for more than 5 years or not, the machine learning model perform best on this data set is Binary Classification, in this assignment, I will use Logistic Regression.
+
+And I will use another model that is Decision Tree and compare the accuracy between them two. The result which model perform best on this data set will be in the section VIII.3
+
+### 2. Which features are most indicative of the players’ career length?
+
+As the result in VII.4, we find that points_per_game is the most indicative feature.
+Following are min_per_game and assist_per_game.
+
+## III. Reading the Data and Import Libraries
+```{r}
+# Data imported as NBA_players
+NBA_players<-read.table("./61_nba_data.csv", header = T, sep = ",", stringsAsFactors = T)
+players<-read.table("./61_nba_data.csv", header = T, sep = ",", stringsAsFactors = T)
+```
+
+```{r}
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if (!require('caTools')) install.packages('caTools'); library('caTools')
+if (!require('ROCR')) install.packages('ROCR'); library('ROCR')
+if (!require('rpart')) install.packages('rpart'); library('rpart')
+if (!require('rpart.plot')) install.packages('rpart.plot'); library('rpart.plot')
+```
+
+## IV. Data Summary
+First, we look at the summary of the data:
+```{r}
+glimpse(NBA_players)
+```
+In total, the data set contains 496 NBA players information. Each player has 20 specifications or attributes that we can predict whether or not they can have career length greater than 5.
+The 21th column is a Boolean value, 0 when that player has career length < 5 and 1 when that player has career length > 5.
+
+## V. Data Preparation
+### 1. Data Cleaning
+Some data may be "NA" value which is not good for prediction, let's check if there is any NA value in the data set.
+```{r}
+map_dbl(NBA_players, function(.x) {sum(is.na(.x))})
+```
+Since there is only one row have X3P. field as NA values, we will drop that row.
+```{r}
+for(i in 1:496){
+  if (is.na(NBA_players[i,"X3P."])) {
+    print(i)
+  }
+}
+```
+Delete the 121th row which is the row contain NA value
+```{r}
+NBA_players <- NBA_players[-121,]
+```
+We check again if the data is fine now:
+```{r}
+map_dbl(NBA_players, function(.x) {sum(is.na(.x))})
+```
+Now there is no missing data from the data set.
+
+### 2. Data Formatting
+Total assists made, total minutes played etc do not take into account the number of games played as well. IE, it may be possible that a certain player has more minutes in one game while he has less in the other.
+
+So, it's better to have metrics like minutes, rebounds, assists, steals etc seen per game.
+
+```{r}
+NBA_players["min/game"] <- NBA_players["MIN"]/NBA_players["GP"]
+NBA_players["rebound/game"] = NBA_players["REB"]/NBA_players["GP"]
+NBA_players["assist/game"] = NBA_players["AST"]/NBA_players["GP"]
+NBA_players["steals/game"] = NBA_players["STL"]/NBA_players["GP"]
+NBA_players["blocks/game"] = NBA_players["BLK"]/NBA_players["GP"]
+NBA_players["turnovers/game"] = NBA_players["TOV"]/NBA_players["GP"]
+NBA_players["5_years?"] = NBA_players["TARGET_5Yrs"]
+```
+
+### 3. Removing columns not needed for the model
+```{r}
+NBA_players <- NBA_players[,!names(NBA_players) %in% c("Name","GP", "MIN", "FGM", "FGA",
+                                                       "X3P.Made", "X3PA", "FTM",
+                                                       "FTA", "OREB", "DREB", "REB", 
+                                                       "AST", "STL", "BLK", "TOV", 
+                                                       "TARGET_5Yrs")]
+
+```
+
+### 4. Giving the columns convenient names
+```{r}
+colnames(NBA_players) <- c("points_per_game", "field_goal_percentage", 
+                           "three_points_percentage", "free_throw_percentage", 
+                           "min_per_game", "rebound_per_game", "assist_per_game", 
+                           "steals_per_game", "blocks_per_game", "turnovers_per_game", "outcome")
+```
+
+### 5. Final Data Prepared
+```{r}
+glimpse(NBA_players)
+```
+Now we done data preparation and data understanding, we move to Data Visualization.
+
+## VI. Data Visualization
+In this part, I will use the raw data for visualization.
+
+TARGET_5Yrs/Outcome is the response variable having either 1 or 0. How many rows having class 1 and how many rows having class 0? 
+
+295 data rows belong to class 1 and 200 data rows belong to class 0.
+```{r}
+outcome <- as.data.frame(table(NBA_players["outcome"]))
+outcome
+ggplot(outcome, aes(x = Freq, y = outcome)) + 
+  geom_bar(stat = "identity") +
+  labs(x = "Players", y = "Outcome")
+```
+
+Exploring the data points further with box plots and scatter plots. Very clear that the number of years more in the career then the Games Played, Minutes Played, Points Per Game and Turnovers are more. The scatter plots clearly show strong correlation between Games Played and Minutes Played, Games Played and Points Per Game, Minutes Played and Points Per Game, Offensive Rebounds and Defensive Rebounds.
+
+```{r}
+ggplot(players, aes(x = TARGET_5Yrs, y = GP, col = as.factor(TARGET_5Yrs))) + 
+  geom_boxplot() + 
+  labs(x = "Outcome", y = "Games Played")
+ggplot(players, aes(x = TARGET_5Yrs, y = MIN, col = as.factor(TARGET_5Yrs))) + 
+  geom_boxplot() + 
+  labs(x = "Outcome", y = "Minutes Played")
+ggplot(players, aes(x = TARGET_5Yrs, y = PTS, col = as.factor(TARGET_5Yrs))) + 
+  geom_boxplot() + 
+  labs(x = "Outcome", y = "Points Per Game")
+ggplot(players, aes(x = TARGET_5Yrs, y = TOV, col = as.factor(TARGET_5Yrs))) + 
+  geom_boxplot() + 
+  labs(x = "Outcome", y = "Turnovers")
+```
+```{r}
+ggplot(players, aes(x = GP, y = MIN, col = as.factor(TARGET_5Yrs))) + 
+  geom_point() + 
+  scale_color_manual(breaks = c(0, 1), values = c("blue", "red")) +
+  labs(x = "Games Played", y = "Minutes Played", col = "Outcome")
+ggplot(players, aes(x = GP, y = PTS, col = as.factor(TARGET_5Yrs))) + 
+  geom_point() + 
+  scale_color_manual(breaks = c(0, 1), values = c("blue", "red")) +
+  labs(x = "Games Played", y = "Points Per Game", col = "Outcome")
+ggplot(players, aes(x = MIN, y = PTS, col = as.factor(TARGET_5Yrs))) + 
+  geom_point() + 
+  scale_color_manual(breaks = c(0, 1), values = c("blue", "red")) +
+  labs(x = "Minutes Played", y = "Points Per Game", col = "Outcome")
+ggplot(players, aes(x = OREB, y = DREB, col = as.factor(TARGET_5Yrs))) + 
+  geom_point() + 
+  scale_color_manual(breaks = c(0, 1), values = c("blue", "red")) +
+  labs(x = "Offensive Rebounds", y = "Defensive Rebounds", col = "Outcome")
+```
+
+## VII. Models
+### 1. Models Break-down
+#### a. Logistic Regression
+
+Logistic regression in R Programming is a classification algorithm used to find the probability of event success and event failure. Logistic regression is used when the dependent variable is binary(0/1, True/False, Yes/No) in nature. Logit function is used as a link function in a binomial distribution.
+
+#### b. Decision Tree
+
+Decision tree is a graph to represent choices and their results in form of a tree. The nodes in the graph represent an event or choice and the edges of the graph represent the decision rules or conditions. It is mostly used in Machine Learning and Data Mining applications using R.
+
+### 2. Creating train and test dataframes
+```{r}
+# Choose how much percentage you want for training set
+training_set_percentage <- 80 # 80%
+
+# Splitting data set
+split <- sample.split(NBA_players, SplitRatio = training_set_percentage/100)
+split
+
+train_set <- subset(NBA_players, split == "TRUE")
+test_set <- subset(NBA_players, split == "FALSE")
+```
+Training Set Summary
+```{r}
+glimpse(train_set)
+```
+Testing Set Summary
+```{r}
+glimpse(test_set)
+```
+
+### 3. Training Model
+#### a. Logistic Regression
+```{r}
+logistic_model <- glm(outcome ~.,family=binomial(link='logit'),data=NBA_players)
+```
+
+#### b. Decision Tree
+```{r}
+decisiontree_model <- rpart(outcome ~., data = NBA_players, method = "class")
+```
+
+
+### 4. Model Summary
+As the Summary, we find that points_per_game is the most indicative feature.
+Following are min_per_game and assist_per_game.
+#### a. Logistic Regression
+```{r}
+summary(logistic_model)
+```
+
+#### b. Decision Tree
+```{r}
+rpart.plot(decisiontree_model)
+```
+
+
+## VIII. Model's evaluation
+### 1. Predict test data based on model
+```{r}
+predict <- predict(logistic_model, test_set, type = "response")
+predict
+
+predict_dt <- predict(decisiontree_model, test_set, type = "class")
+predict_dt
+```
+
+### 2. Turn Probabilities into Results
+```{r}
+predict <- ifelse(predict >0.5, 1, 0)
+predict
+
+predict_dt
+```
+
+### 3. Evaluating model accuracy using confusion matrix
+Confusion Matrix:
+```{r}
+# Logistic Regression
+table(test_set$outcome, predict)
+# Decision Tree
+table(test_set$outcome, predict_dt)
+```
+Below is the accuracy using Logistic Regression Model:
+```{r}
+missing_classerr <- mean(predict != test_set$outcome)
+print(paste('Accuracy Logistic Regression =', 1 - missing_classerr))
+a_lr = 1 - missing_classerr
+```
+Below is the accuracy using Decision Tree Model:
+```{r}
+missing_classerr_dt <- mean(predict_dt != test_set$outcome)
+print(paste('Accuracy Decision Tree =', 1 - missing_classerr_dt))
+a_dt = 1 - missing_classerr_dt
+```
+As the result, the best model for the most accuracy is:
+```{r}
+if(a_lr > a_dt){
+  print("Logistic Regression")
+} else{
+  print("Decision Tree")
+}
+```
+
+
+## IX. Answer for the question related to the new data set
+### 1. Import new data set
+```{r}
+new_NBA_players<-read.table("./62_nba_newdata_no_labels.csv", header = T, sep = ",", stringsAsFactors = T)
+new_players<-read.table("./62_nba_newdata_no_labels.csv", header = T, sep = ",", stringsAsFactors = T)
+```
+
+### 2. Check if the data set is clean
+```{r}
+map_dbl(new_NBA_players, function(.x) {sum(is.na(.x))})
+```
+Data is clean as no NA value.
+
+### 3. Data Preparation
+```{r}
+new_NBA_players["min/game"] <- new_NBA_players["MIN"]/new_NBA_players["GP"]
+new_NBA_players["rebound/game"] = new_NBA_players["REB"]/new_NBA_players["GP"]
+new_NBA_players["assist/game"] = new_NBA_players["AST"]/new_NBA_players["GP"]
+new_NBA_players["steals/game"] = new_NBA_players["STL"]/new_NBA_players["GP"]
+new_NBA_players["blocks/game"] = new_NBA_players["BLK"]/new_NBA_players["GP"]
+new_NBA_players["turnovers/game"] = new_NBA_players["TOV"]/new_NBA_players["GP"]
+
+new_NBA_players <- new_NBA_players[,!names(new_NBA_players) %in% c("Name","GP", "MIN", "FGM", "FGA",
+                                                       "X3P.Made", "X3PA", "FTM",
+                                                       "FTA", "OREB", "DREB", "REB", 
+                                                       "AST", "STL", "BLK", "TOV")]
+
+colnames(new_NBA_players) <- c("points_per_game", "field_goal_percentage", 
+                           "three_points_percentage", "free_throw_percentage", 
+                           "min_per_game", "rebound_per_game", "assist_per_game", 
+                           "steals_per_game", "blocks_per_game", "turnovers_per_game")
+
+glimpse(new_NBA_players)
+```
+
+### 4. Prediction
+```{r}
+new_predict <- predict(logistic_model, new_NBA_players, type = "response")
+new_predict
+new_predict <- ifelse(new_predict >0.5, 1, 0)
+new_predict
+```
+
+### 5. Results
+```{r}
+results <- new_players["Name"]
+for(i in 1:20){
+  results[i,"Outcome"] <- new_predict[i]
+  new_players[i,"TARGET_5Yrs"] <- new_predict[i]
+}
+results
+```
+
+### 6. Export predicted CSV
+```{r}
+write.csv(new_players,"./predicted_62_nba_newdata_no_labels.csv", row.names = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
